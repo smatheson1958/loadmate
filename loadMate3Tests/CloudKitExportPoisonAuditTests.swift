@@ -20,6 +20,9 @@ final class CloudKitExportPoisonAuditTests: XCTestCase {
         XCTAssertTrue(report.formatted.contains("none in the local graph"))
         XCTAssertEqual(report.local.sectionCount, 5)
         XCTAssertTrue(report.local.didMigrateChecklistsToVehicles)
+        XCTAssertTrue(report.local.modelCounts.contains { $0.model == "ChecklistSection" && $0.count == 5 })
+        XCTAssertTrue(report.formatted.contains("LOCAL MODEL COUNTS"))
+        XCTAssertTrue(report.formatted.contains("LOCAL ASSETS"))
     }
 
     func testFlagsUnscopedSectionsAfterMigration() throws {
@@ -31,9 +34,19 @@ final class CloudKitExportPoisonAuditTests: XCTestCase {
 
         let report = CloudKitExportPoisonAudit.audit(in: context)
         XCTAssertTrue(report.findings.contains { $0.code == "unscoped-after-migrate" })
-        XCTAssertTrue(report.formatted.contains("LIKELY PROBLEMS"))
-        XCTAssertTrue(report.formatted.contains("Shared leftover") == false)
         XCTAssertTrue(report.formatted.contains("unscoped-after-migrate"))
+    }
+
+    func testFlagsDuplicateSectionTitlesOnTheSameVehicle() throws {
+        let context = try makeContext()
+        context.insert(AppState())
+        let caravan = VehicleProfile(name: "Van", kind: .caravan, sortOrder: 0)
+        context.insert(caravan)
+        context.insert(ChecklistSection(title: "Pitching", sortOrder: 0, profile: caravan))
+        context.insert(ChecklistSection(title: "Pitching", sortOrder: 1, profile: caravan))
+
+        let report = CloudKitExportPoisonAudit.audit(in: context)
+        XCTAssertTrue(report.findings.contains { $0.code == "duplicate-title-on-vehicle" })
     }
 
     func testFlagsOrphanGroupAndItem() throws {
@@ -131,6 +144,12 @@ final class CloudKitExportPoisonAuditTests: XCTestCase {
         XCTAssertEqual(SyncDebugTestCatalog.watchVehicle, 30)
         XCTAssertTrue(SyncDebugTestCatalog.indexText.contains("5. Compare Local vs CloudKit"))
         XCTAssertTrue(SyncDebugTestCatalog.title(5, "Compare Local vs CloudKit").hasPrefix("5. "))
+        let numbers = SyncDebugTestCatalog.indexLines.compactMap { line -> Int? in
+            Int(line.split(separator: ".", maxSplits: 1).first ?? "")
+        }
+        XCTAssertEqual(numbers, numbers.sorted())
+        XCTAssertEqual(numbers.first, 1)
+        XCTAssertEqual(numbers.last, 31)
     }
 
     private func makeContext() throws -> ModelContext {

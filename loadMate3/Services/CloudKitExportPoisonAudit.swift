@@ -25,6 +25,11 @@ struct CloudKitExportPoisonVehicleRow: Equatable {
     var count: Int
 }
 
+struct CloudKitExportPoisonModelCount: Equatable {
+    var model: String
+    var count: Int
+}
+
 struct CloudKitExportPoisonLocalSnapshot: Equatable {
     var profileCount = 0
     var sectionCount = 0
@@ -33,11 +38,14 @@ struct CloudKitExportPoisonLocalSnapshot: Equatable {
     var appStateCount = 0
     var didMigrateChecklistsToVehicles = false
     var vehicleIDs: [UUID] = []
+    var tripIDs: [UUID] = []
     var sectionIDs: [UUID] = []
     var groupIDs: [UUID] = []
     var itemIDs: [UUID] = []
     var sections: [CloudKitExportPoisonSectionRow] = []
     var sectionsPerVehicle: [CloudKitExportPoisonVehicleRow] = []
+    var modelCounts: [CloudKitExportPoisonModelCount] = []
+    var assetLines: [String] = []
 }
 
 struct CloudKitExportPoisonReport: Equatable {
@@ -61,6 +69,20 @@ struct CloudKitExportPoisonReport: Equatable {
             for row in local.sectionsPerVehicle {
                 lines.append("vehicle \(row.vehicleID.uuidString) name=\(row.name) sections=\(row.count)")
             }
+        }
+        lines.append("LOCAL MODEL COUNTS")
+        if local.modelCounts.isEmpty {
+            lines.append("  none")
+        } else {
+            for row in local.modelCounts {
+                lines.append("  \(row.model)=\(row.count)")
+            }
+        }
+        lines.append("LOCAL ASSETS")
+        if local.assetLines.isEmpty {
+            lines.append("  none")
+        } else {
+            lines.append(contentsOf: local.assetLines.map { "  \($0)" })
         }
         lines.append("")
         let likely = findings.filter { $0.severity == .likely }
@@ -91,11 +113,14 @@ enum CloudKitExportPoisonAudit {
     @MainActor
     static func audit(in context: ModelContext) -> CloudKitExportPoisonReport {
         let profiles = fetch(VehicleProfile.self, in: context)
+        let trips = fetch(Trip.self, in: context)
         let sections = fetch(ChecklistSection.self, in: context)
         let groups = fetch(ChecklistGroup.self, in: context)
         let items = fetch(ChecklistItem.self, in: context)
         let appStates = fetch(AppState.self, in: context)
         let migrated = appStates.contains { $0.didMigrateChecklistsToVehicles }
+        let modelCounts = allModelCounts(in: context)
+        let assets = assetInventory(in: context)
 
         let snapshot = CloudKitExportPoisonLocalSnapshot(
             profileCount: profiles.count,
@@ -105,6 +130,7 @@ enum CloudKitExportPoisonAudit {
             appStateCount: appStates.count,
             didMigrateChecklistsToVehicles: migrated,
             vehicleIDs: profiles.map(\.id),
+            tripIDs: trips.map(\.id),
             sectionIDs: sections.map(\.id),
             groupIDs: groups.map(\.id),
             itemIDs: items.map(\.id),
@@ -119,7 +145,9 @@ enum CloudKitExportPoisonAudit {
                         name: $0.name,
                         count: $0.checklistSectionsList.count
                     )
-                }
+                },
+            modelCounts: modelCounts,
+            assetLines: assets.lines
         )
 
         var findings: [CloudKitExportPoisonFinding] = []
@@ -203,6 +231,21 @@ enum CloudKitExportPoisonAudit {
             )
         }
 
+        for profile in profiles {
+            let grouped = Dictionary(grouping: profile.checklistSectionsList, by: \.title)
+            for (title, rows) in grouped where rows.count > 1 {
+                findings.append(
+                    CloudKitExportPoisonFinding(
+                        severity: .info,
+                        code: "duplicate-title-on-vehicle",
+                        detail: "vehicle \(profile.id.uuidString) has \(rows.count) sections titled \(title)"
+                    )
+                )
+            }
+        }
+
+        findings.append(contentsOf: assets.findings)
+
         return CloudKitExportPoisonReport(local: snapshot, findings: findings)
     }
 
@@ -256,6 +299,78 @@ enum CloudKitExportPoisonAudit {
             )
         }
         .sorted { $0.detail < $1.detail }
+    }
+
+    private static func allModelCounts(in context: ModelContext) -> [CloudKitExportPoisonModelCount] {
+        [
+            count(AccidentOtherVehicle.self, in: context),
+            count(AccidentPhoto.self, in: context),
+            count(AccidentRecord.self, in: context),
+            count(AccidentWitness.self, in: context),
+            count(AppState.self, in: context),
+            count(ChecklistGroup.self, in: context),
+            count(ChecklistItem.self, in: context),
+            count(ChecklistSection.self, in: context),
+            count(DocumentRecord.self, in: context),
+            count(FaultRecord.self, in: context),
+            count(LibraryItem.self, in: context),
+            count(LoadedItem.self, in: context),
+            count(MaintenanceAttachment.self, in: context),
+            count(MaintenanceRecord.self, in: context),
+            count(Trip.self, in: context),
+            count(TripExpense.self, in: context),
+            count(TripLeg.self, in: context),
+            count(TripRecord.self, in: context),
+            count(TripStop.self, in: context),
+            count(TyreInspection.self, in: context),
+            count(TyrePhoto.self, in: context),
+            count(TyreRecord.self, in: context),
+            count(VehicleProfile.self, in: context),
+            count(WarrantyEvent.self, in: context),
+            count(WarrantyPlan.self, in: context),
+        ].sorted { $0.model < $1.model }
+    }
+
+    private static func count<Model: PersistentModel>(
+        _ type: Model.Type,
+        in context: ModelContext
+    ) -> CloudKitExportPoisonModelCount {
+        CloudKitExportPoisonModelCount(model: String(describing: type), count: fetch(type, in: context).count)
+    }
+
+    private static func assetInventory(in context: ModelContext) -> (lines: [String], findings: [CloudKitExportPoisonFinding]) {
+        var lines: [String] = []
+        var findings: [CloudKitExportPoisonFinding] = []
+
+        func note(model: String, id: UUID, field: String, data: Data?) {
+            guard let data, !data.isEmpty else { return }
+            let line = "\(model) \(id.uuidString) \(field)=\(data.count) bytes"
+            lines.append(line)
+            if data.count >= 1_000_000 {
+                findings.append(
+                    CloudKitExportPoisonFinding(
+                        severity: .likely,
+                        code: "large-asset",
+                        detail: line
+                    )
+                )
+            }
+        }
+
+        for profile in fetch(VehicleProfile.self, in: context) {
+            note(model: "VehicleProfile", id: profile.id, field: "manufacturerPlatePhotoData", data: profile.manufacturerPlatePhotoData)
+        }
+        for photo in fetch(AccidentPhoto.self, in: context) {
+            note(model: "AccidentPhoto", id: photo.id, field: "imageData", data: photo.imageData)
+        }
+        for photo in fetch(TyrePhoto.self, in: context) {
+            note(model: "TyrePhoto", id: photo.id, field: "imageData", data: photo.imageData)
+        }
+        for attachment in fetch(MaintenanceAttachment.self, in: context) {
+            note(model: "MaintenanceAttachment", id: attachment.id, field: "fileData", data: attachment.fileData)
+            note(model: "MaintenanceAttachment", id: attachment.id, field: "thumbnailData", data: attachment.thumbnailData)
+        }
+        return (lines, findings)
     }
 
     private static func fetch<Model: PersistentModel>(_ type: Model.Type, in context: ModelContext) -> [Model] {
@@ -360,9 +475,13 @@ enum CloudKitFieldProbe {
 
             let cloudSectionIDs = sections.compactMap { CloudKitExportPoisonAudit.uuid(fromCloudValue: $0["CD_id"]) }
             let cloudVehicleIDs = vehicles.compactMap { CloudKitExportPoisonAudit.uuid(fromCloudValue: $0["CD_id"]) }
+            let cloudGroupIDs = groups.compactMap { CloudKitExportPoisonAudit.uuid(fromCloudValue: $0["CD_id"]) }
+            let cloudItemIDs = items.compactMap { CloudKitExportPoisonAudit.uuid(fromCloudValue: $0["CD_id"]) }
             let cloudVehicleRecordNames = Set(vehicles.map(\.recordID.recordName))
             let sectionDiff = CloudKitExportPoisonAudit.compareIDs(local: local.sectionIDs, cloud: cloudSectionIDs)
             let vehicleDiff = CloudKitExportPoisonAudit.compareIDs(local: local.vehicleIDs, cloud: cloudVehicleIDs)
+            let groupDiff = CloudKitExportPoisonAudit.compareIDs(local: local.groupIDs, cloud: cloudGroupIDs)
+            let itemDiff = CloudKitExportPoisonAudit.compareIDs(local: local.itemIDs, cloud: cloudItemIDs)
 
             var emptyProfile = 0
             var profileMismatches: [String] = []
@@ -424,11 +543,45 @@ enum CloudKitFieldProbe {
             }
 
             lines.append("")
+            lines.append("ALL RECORD TYPE COUNTS")
+            var mismatches: [String] = []
+            let localCountByModel = Dictionary(uniqueKeysWithValues: local.modelCounts.map { ($0.model, $0.count) })
+            for model in local.modelCounts.map(\.model) {
+                let recordType = "CD_\(model)"
+                let localCount = localCountByModel[model] ?? 0
+                do {
+                    let records = try await CloudKitQueryPaging.fetchAll(
+                        recordType: recordType,
+                        database: database,
+                        zoneID: zoneID,
+                        desiredKeys: ["CD_id"]
+                    )
+                    lines.append("  \(recordType) cloud=\(records.count) local=\(localCount)")
+                    if records.count != localCount {
+                        mismatches.append("\(recordType) local=\(localCount) cloud=\(records.count)")
+                    }
+                } catch let error as CKError where error.code == .unknownItem {
+                    lines.append("  \(recordType) unknown in this environment local=\(localCount)")
+                    if localCount > 0 {
+                        mismatches.append("\(recordType) local=\(localCount) cloud=unknown")
+                    }
+                } catch {
+                    lines.append(
+                        "  \(recordType) probe failed local=\(localCount) error=\(CloudSyncErrorFormatting.description(for: error))"
+                    )
+                }
+            }
+
+            lines.append("")
             lines.append("COMPARE")
             lines.append("vehicles local-only: \(describeIDs(vehicleDiff.localOnly))")
             lines.append("vehicles cloud-only: \(describeIDs(vehicleDiff.cloudOnly))")
             lines.append("sections local-only: \(describeIDs(sectionDiff.localOnly))")
             lines.append("sections cloud-only: \(describeIDs(sectionDiff.cloudOnly))")
+            lines.append("groups local-only: \(describeIDs(groupDiff.localOnly))")
+            lines.append("groups cloud-only: \(describeIDs(groupDiff.cloudOnly))")
+            lines.append("items local-only: \(describeIDs(itemDiff.localOnly))")
+            lines.append("items cloud-only: \(describeIDs(itemDiff.cloudOnly))")
             lines.append("cloud sections with empty CD_profile: \(emptyProfile)/\(sections.count)")
             if profileMismatches.isEmpty {
                 lines.append("CD_profile values that match neither a vehicle CD_id nor a vehicle recordName: none")
@@ -436,8 +589,14 @@ enum CloudKitFieldProbe {
                 lines.append("CD_profile values that match neither a vehicle CD_id nor a vehicle recordName:")
                 lines.append(contentsOf: profileMismatches.prefix(12).map { "  \($0)" })
             }
-            if sectionDiff.localOnly.isEmpty, emptyProfile == 0, profileMismatches.isEmpty {
-                lines.append("Cloud section IDs match local. If export still fails, the poison is a field update on an existing record, not a missing type.")
+            if mismatches.isEmpty {
+                lines.append("All probed record-type counts match local.")
+            } else {
+                lines.append("COUNT MISMATCHES (best export-poison suspects):")
+                lines.append(contentsOf: mismatches.map { "  \($0)" })
+            }
+            if sectionDiff.localOnly.isEmpty, emptyProfile == 0, profileMismatches.isEmpty, mismatches.isEmpty {
+                lines.append("Cloud checklist IDs match local. If export still fails, the poison is a field update or mirroring history, not a missing type.")
             } else if !sectionDiff.localOnly.isEmpty {
                 lines.append("Local-only sections are the best export-poison suspects: they exist here and have not appeared in CloudKit.")
             }
@@ -449,8 +608,12 @@ enum CloudKitFieldProbe {
         }
     }
 
-    private static func describeIDs(_ ids: [UUID]) -> String {
+    private static func describeIDs(_ ids: [UUID], limit: Int = 12) -> String {
         if ids.isEmpty { return "none" }
-        return "\(ids.count) \(ids.map(\.uuidString).joined(separator: ", "))"
+        let shown = ids.prefix(limit).map(\.uuidString).joined(separator: ", ")
+        if ids.count > limit {
+            return "\(ids.count) \(shown) …"
+        }
+        return "\(ids.count) \(shown)"
     }
 }
