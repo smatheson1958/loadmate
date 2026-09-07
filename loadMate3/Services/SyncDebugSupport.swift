@@ -34,6 +34,7 @@ struct SyncDebugSnapshot {
     let isRegisteredForRemoteNotifications: Bool
     let pushRegistrationDetail: String
     let cloudKitSchemaDetail: String
+    let exportPoisonReport: String
     let deviceName: String
     let bundleID: String
     let appVersion: String
@@ -132,6 +133,9 @@ final class SyncDebugLogger: ObservableObject {
             "Push registered: \(snapshot.isRegisteredForRemoteNotifications ? "Yes" : "No")",
             "Push detail: \(snapshot.pushRegistrationDetail)",
             "CloudKit schema: \(snapshot.cloudKitSchemaDetail)",
+            "",
+            "Export poison audit",
+            snapshot.exportPoisonReport.isEmpty ? "Not run yet" : snapshot.exportPoisonReport,
             "Active profile: \(snapshot.activeProfileName ?? "None")",
             "Counts: profiles=\(snapshot.vehicleProfileCount), trips=\(snapshot.tripCount), loadedItems=\(snapshot.loadedItemCount), libraryItems=\(snapshot.libraryItemCount), checklistSections=\(snapshot.checklistSectionCount), checklistItems=\(snapshot.checklistItemCount), appStates=\(snapshot.appStateCount)",
             "Sync probe sequence: \(snapshot.syncProbeSequence)",
@@ -140,6 +144,8 @@ final class SyncDebugLogger: ObservableObject {
             "Sync probe value: \(snapshot.syncProbeValue.isEmpty ? "None" : snapshot.syncProbeValue)",
             "",
             CloudKitModelAudit.report(),
+            "",
+            SyncDebugTestCatalog.indexText,
             "",
             "Recent log"
         ]
@@ -154,6 +160,68 @@ final class SyncDebugLogger: ObservableObject {
     private func persist() {
         guard let data = try? encoder.encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
+/// Stable numbers for Sync Debug buttons. Never renumber an existing action; add a new unused number instead.
+enum SyncDebugTestCatalog {
+    static let refreshICloud = 1
+    static let checkSchema = 2
+    static let writeSyncProbe = 3
+    static let minimalSync = 4
+    static let compareLocalVsCloudKit = 5
+    static let productionHealth = 6
+    static let diagnosticAudit = 7
+    static let copyDebugReport = 8
+    static let logModelAudit = 9
+    static let removeDiagnosticRecords = 10
+    static let clearLocalLog = 11
+    static let isolationAppState = 12
+    static let isolationCoreVehicle = 13
+    static let isolationChecklist = 14
+    static let isolationChecklistGroup = 15
+    static let isolationLoadedItem = 16
+    static let isolationLibraryItem = 17
+    static let firstSeedSection = 20
+    static let watchVehicle = 30
+    static let checkWatchedVehicle = 31
+
+    static func title(_ number: Int, _ name: String) -> String {
+        "\(number). \(name)"
+    }
+
+    static func seedSectionNumber(_ templateOrder: Int) -> Int {
+        firstSeedSection + templateOrder
+    }
+
+    static var indexLines: [String] {
+        [
+            title(refreshICloud, "Refresh iCloud Status"),
+            title(checkSchema, "Check CloudKit Schema"),
+            title(writeSyncProbe, "Write Sync Probe"),
+            title(minimalSync, "Run Minimal Sync Test"),
+            title(compareLocalVsCloudKit, "Compare Local vs CloudKit"),
+            title(productionHealth, "Run Production Sync Health Check"),
+            title(diagnosticAudit, "Run Diagnostic Data Audit"),
+            title(copyDebugReport, "Copy Debug Report"),
+            title(logModelAudit, "Log Model Audit"),
+            title(removeDiagnosticRecords, "Remove Clearly Diagnostic Records"),
+            title(clearLocalLog, "Clear Local Log"),
+            title(isolationAppState, "Run AppState-Only CloudKit Test (disabled)"),
+            title(isolationCoreVehicle, "Run Core Vehicle CloudKit Test (disabled)"),
+            title(isolationChecklist, "Run Checklist Model CloudKit Test (disabled)"),
+            title(isolationChecklistGroup, "Run ChecklistGroup CloudKit Test (disabled)"),
+            title(isolationLoadedItem, "Run LoadedItem CloudKit Test (disabled)"),
+            title(isolationLibraryItem, "Run LibraryItem CloudKit Test (disabled)"),
+            title(firstSeedSection, "Add seed section 1 (then 21, 22… by template order)"),
+            title(watchVehicle, "Watch vehicle"),
+            title(checkWatchedVehicle, "Check whether watched vehicle reappeared"),
+        ]
+    }
+
+    static var indexText: String {
+        (["Sync Debug test numbers (stable — new actions get a new number)"] + indexLines)
+            .joined(separator: "\n")
     }
 }
 

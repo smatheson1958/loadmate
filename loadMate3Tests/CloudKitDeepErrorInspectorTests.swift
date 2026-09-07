@@ -112,6 +112,7 @@ final class CloudKitDeepErrorInspectorTests: XCTestCase {
             isRegisteredForRemoteNotifications: true,
             pushRegistrationDetail: "Registered",
             cloudKitSchemaDetail: "CloudKit connectivity/schema probe:\nCD_AppState reachable",
+            exportPoisonReport: "",
             deviceName: "Test iPad",
             bundleID: "test.bundle",
             appVersion: "4.0",

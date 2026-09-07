@@ -31,14 +31,16 @@ struct SyncDebugPanelView: View {
                     AppHeroSection(
                         systemImage: "ladybug",
                         title: "Sync Debug",
-                        subtitle: "Hidden developer-only iCloud diagnostics"
+                        subtitle: "Hidden developer-only iCloud diagnostics. Actions are numbered so we can say “run 5”."
                     )
 
+                    testIndexSection()
                     statusSection()
                     cloudKitEnvironmentSection()
                     lastDetailedFailureSection()
                     isolationTestSection()
                     diagnosticAuditSection()
+                    exportPoisonSection()
                     productionHealthSection()
                     incrementalChecklistSeedSection()
                     deletionVerificationSection()
@@ -65,6 +67,20 @@ struct SyncDebugPanelView: View {
                 cloudSync.refreshPushRegistrationStatus()
                 SyncDebugLogger.shared.record(category: "panel", message: "Opened sync debug panel.")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func testIndexSection() -> some View {
+        AppSettingsSection(
+            "Test numbers",
+            caption: "These numbers stay the same when we add new actions. Say “run 5” in chat."
+        ) {
+            Text(SyncDebugTestCatalog.indexText)
+                .font(.caption.monospaced())
+                .foregroundStyle(Color.primary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -156,32 +172,32 @@ struct SyncDebugPanelView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
 
-                AppSecondaryButton("Run AppState-Only CloudKit Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.isolationAppState, "Run AppState-Only CloudKit Test")) {
                     Task { await isolationTester.runAppStateOnlyTest() }
                 }
                 .disabled(true)
 
-                AppSecondaryButton("Run Core Vehicle CloudKit Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.isolationCoreVehicle, "Run Core Vehicle CloudKit Test")) {
                     Task { await isolationTester.runCoreVehicleTest() }
                 }
                 .disabled(true)
 
-                AppSecondaryButton("Run Checklist Model CloudKit Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.isolationChecklist, "Run Checklist Model CloudKit Test")) {
                     Task { await isolationTester.runChecklistTest() }
                 }
                 .disabled(true)
 
-                AppSecondaryButton("Run ChecklistGroup CloudKit Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.isolationChecklistGroup, "Run ChecklistGroup CloudKit Test")) {
                     Task { await isolationTester.runChecklistGroupTest() }
                 }
                 .disabled(true)
 
-                AppSecondaryButton("Run LoadedItem CloudKit Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.isolationLoadedItem, "Run LoadedItem CloudKit Test")) {
                     Task { await isolationTester.runLoadedItemTest() }
                 }
                 .disabled(true)
 
-                AppSecondaryButton("Run LibraryItem CloudKit Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.isolationLibraryItem, "Run LibraryItem CloudKit Test")) {
                     Task { await isolationTester.runLibraryItemTest() }
                 }
                 .disabled(true)
@@ -196,7 +212,7 @@ struct SyncDebugPanelView: View {
             caption: "Scans the live store. Does not delete anything until you confirm Remove Clearly Diagnostic Records."
         ) {
             VStack(alignment: .leading, spacing: AppScreenMetrics.controlSpacing) {
-                AppSecondaryButton("Run Diagnostic Data Audit") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.diagnosticAudit, "Run Diagnostic Data Audit")) {
                     let report = CloudKitDiagnosticAuditor.audit(in: modelContext)
                     auditReport = report
                     removalPreview = report.removalPreview
@@ -216,7 +232,7 @@ struct SyncDebugPanelView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                AppSecondaryButton("Remove Clearly Diagnostic Records") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.removeDiagnosticRecords, "Remove Clearly Diagnostic Records")) {
                     Task { await removeClearlyDiagnosticRecords() }
                 }
                 .disabled(auditReport?.removalPlan.removable.isEmpty != false)
@@ -232,13 +248,40 @@ struct SyncDebugPanelView: View {
     }
 
     @ViewBuilder
+    private func exportPoisonSection() -> some View {
+        AppSettingsSection(
+            "Export Poison Audit",
+            caption: "Non-destructive. Compares this device’s checklist graph with live CloudKit fields, including CD_profile. Does not write."
+        ) {
+            VStack(alignment: .leading, spacing: AppScreenMetrics.controlSpacing) {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.compareLocalVsCloudKit, "Compare Local vs CloudKit")) {
+                    Task {
+                        _ = await cloudSync.probeExportPoison(in: modelContext)
+                    }
+                }
+                if let dump = cloudSync.lastExportPoisonReport, !dump.isEmpty {
+                    Text(dump)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(Color.primary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Not run yet")
+                        .font(.caption)
+                        .foregroundStyle(AppColors.textSupporting)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private func productionHealthSection() -> some View {
         AppSettingsSection(
             "Production Sync Health Check",
             caption: "Non-destructive. Does not create records."
         ) {
             VStack(alignment: .leading, spacing: AppScreenMetrics.controlSpacing) {
-                AppSecondaryButton("Run Production Sync Health Check") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.productionHealth, "Run Production Sync Health Check")) {
                     healthReport = CloudKitProductionHealth.report(monitor: cloudSync, context: modelContext)
                     if let healthReport {
                         logger.record(category: "health", message: healthReport.formatted)
@@ -266,7 +309,12 @@ struct SyncDebugPanelView: View {
                     Array(LoadMateChecklistSeedTemplate.sections(for: incrementalSeedTargetProfile?.kind ?? .caravan).enumerated()),
                     id: \.element.templateOrder
                 ) { index, section in
-                    AppSecondaryButton(section.debugButtonTitle) {
+                    AppSecondaryButton(
+                        SyncDebugTestCatalog.title(
+                            SyncDebugTestCatalog.seedSectionNumber(section.templateOrder),
+                            section.debugButtonTitle
+                        )
+                    ) {
                         let result = LoadMateChecklistSeedTemplate.insertSection(
                             at: index,
                             onto: incrementalSeedTargetProfile,
@@ -300,7 +348,10 @@ struct SyncDebugPanelView: View {
                 ForEach(profiles, id: \.id) { profile in
                     VStack(alignment: .leading, spacing: 4) {
                         AppSecondaryButton(
-                            "Watch \(profile.kind.displayName) …\(profile.id.uuidString.suffix(4))"
+                            SyncDebugTestCatalog.title(
+                                SyncDebugTestCatalog.watchVehicle,
+                                "Watch \(profile.kind.displayName) …\(profile.id.uuidString.suffix(4))"
+                            )
                         ) {
                             deletionVerifier.startWatching(
                                 profile: profile,
@@ -314,7 +365,7 @@ struct SyncDebugPanelView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                AppSecondaryButton("Check whether watched vehicle reappeared") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.checkWatchedVehicle, "Check whether watched vehicle reappeared")) {
                     deletionVerifier.checkReimport(in: modelContext)
                 }
                 .disabled(deletionVerifier.watchedID == nil)
@@ -362,11 +413,11 @@ struct SyncDebugPanelView: View {
                 statusRow("Device", value: probeDeviceText)
                 statusRow("Value", value: probeValueText)
 
-                AppSecondaryButton("Write Sync Probe") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.writeSyncProbe, "Write Sync Probe")) {
                     writeSyncProbe()
                 }
 
-                AppSecondaryButton("Run Minimal Sync Test") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.minimalSync, "Run Minimal Sync Test")) {
                     runMinimalSyncTest()
                 }
 
@@ -403,26 +454,26 @@ struct SyncDebugPanelView: View {
             caption: "Manual refresh and reporting tools for real-device troubleshooting."
         ) {
             VStack(alignment: .leading, spacing: AppScreenMetrics.controlSpacing) {
-                AppSecondaryButton("Refresh iCloud Status") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.refreshICloud, "Refresh iCloud Status")) {
                     Task {
                         await cloudSync.refresh()
                         refreshCounts()
                     }
                 }
 
-                AppSecondaryButton("Check CloudKit Schema") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.checkSchema, "Check CloudKit Schema")) {
                     Task {
                         await cloudSync.probeCloudKitSchema()
                     }
                 }
 
-                AppSecondaryButton("Copy Debug Report") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.copyDebugReport, "Copy Debug Report")) {
                     refreshCounts()
                     let report = logger.makeReport(snapshot: snapshot())
                     copyConfirmation = logger.copyReport(report) ? "Report copied to clipboard." : "Clipboard not available on this platform."
                 }
 
-                AppSecondaryButton("Log Model Audit") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.logModelAudit, "Log Model Audit")) {
                     logger.record(category: "schema", message: CloudKitModelAudit.report())
                     copyConfirmation = "Model audit written to the local log and included in Copy Debug Report."
                 }
@@ -438,7 +489,7 @@ struct SyncDebugPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 #endif
 
-                AppSecondaryButton("Clear Local Log") {
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.clearLocalLog, "Clear Local Log")) {
                     logger.clear()
                     copyConfirmation = "Cleared local sync log, CloudKit event history, and last detailed CloudKit failure."
                 }
@@ -585,6 +636,7 @@ struct SyncDebugPanelView: View {
             isRegisteredForRemoteNotifications: cloudSync.isRegisteredForRemoteNotifications,
             pushRegistrationDetail: cloudSync.pushRegistrationDetail,
             cloudKitSchemaDetail: cloudSync.cloudKitSchemaDetail,
+            exportPoisonReport: cloudSync.lastExportPoisonReport ?? "",
             deviceName: SyncDebugFormatting.deviceName,
             bundleID: SyncDebugFormatting.bundleID,
             appVersion: SyncDebugFormatting.appVersion,

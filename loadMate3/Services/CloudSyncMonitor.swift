@@ -192,6 +192,7 @@ final class CloudSyncMonitor: ObservableObject {
   @Published private(set) var isRegisteredForRemoteNotifications = false
   @Published private(set) var pushRegistrationDetail = "Waiting for APNs registration…"
   @Published private(set) var cloudKitSchemaDetail = "Not checked yet"
+  @Published private(set) var lastExportPoisonReport: String?
   @Published private(set) var lastDetailedCloudKitFailure: String?
   @Published private(set) var pendingMinimalSyncTestID: String?
   @Published private(set) var lastMinimalSyncTestID: String?
@@ -204,6 +205,7 @@ final class CloudSyncMonitor: ObservableObject {
   private var didStart = false
   private let historyDefaultsKey = "cloudSyncEventHistory"
   private let lastDetailedFailureDefaultsKey = "cloudSyncLastDetailedFailure"
+  private let lastExportPoisonDefaultsKey = "cloudSyncLastExportPoisonReport"
   private let minimalSyncStatusDefaultsKey = "cloudSyncMinimalSyncTestStatus"
   private let minimalSyncIDDefaultsKey = "cloudSyncMinimalSyncTestID"
   private let historyEncoder = JSONEncoder()
@@ -233,6 +235,7 @@ final class CloudSyncMonitor: ObservableObject {
     historyEncoder.dateEncodingStrategy = .iso8601
     loadEventHistory()
     loadLastDetailedFailure()
+    loadLastExportPoisonReport()
     loadMinimalSyncTestStatus()
     observeAccountChanges()
     observeSyncEvents()
@@ -315,7 +318,9 @@ final class CloudSyncMonitor: ObservableObject {
   func clearDiagnostics() {
     clearEventHistory()
     lastDetailedCloudKitFailure = nil
+    lastExportPoisonReport = nil
     UserDefaults.standard.removeObject(forKey: lastDetailedFailureDefaultsKey)
+    UserDefaults.standard.removeObject(forKey: lastExportPoisonDefaultsKey)
   }
 
   func refresh() async {
@@ -442,18 +447,35 @@ final class CloudSyncMonitor: ObservableObject {
     }
   }
 
+  func probeExportPoison(in context: ModelContext) async -> String {
+    var report = CloudKitExportPoisonAudit.audit(in: context)
+    report.cloudDetail = await CloudKitFieldProbe.run(
+      containerID: LoadMateModelContainer.cloudKitContainerID,
+      local: report.local
+    )
+    let text = report.formatted
+    lastExportPoisonReport = text
+    UserDefaults.standard.set(text, forKey: lastExportPoisonDefaultsKey)
+    SyncDebugLogger.shared.record(category: "poison", message: text)
+    return text
+  }
+
+  private func loadLastExportPoisonReport() {
+    lastExportPoisonReport = UserDefaults.standard.string(forKey: lastExportPoisonDefaultsKey)
+  }
+
   private func probeRecordType(
     _ recordType: String,
     database: CKDatabase,
     zoneID: CKRecordZone.ID
   ) async -> String {
-    let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
     do {
-      let (matchResults, _) = try await database.records(matching: query, inZoneWith: zoneID)
-      let recordCount = matchResults.reduce(into: 0) { count, pair in
-        if case .success = pair.1 { count += 1 }
-      }
-      return "\(recordType) reachable (\(recordCount) record\(recordCount == 1 ? "" : "s"))"
+      let records = try await CloudKitQueryPaging.fetchAll(
+        recordType: recordType,
+        database: database,
+        zoneID: zoneID
+      )
+      return "\(recordType) reachable (\(records.count) record\(records.count == 1 ? "" : "s"))"
     } catch let error as CKError where error.code == .unknownItem {
       return "\(recordType) unknown in this environment"
     } catch {
