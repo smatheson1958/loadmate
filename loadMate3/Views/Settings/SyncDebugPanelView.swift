@@ -8,6 +8,7 @@ struct SyncDebugPanelView: View {
     @ObservedObject var cloudSync: CloudSyncMonitor
     @ObservedObject private var isolationTester = CloudKitModelIsolationTester.shared
     @ObservedObject private var deletionVerifier = CloudKitDeletionSyncVerifier.shared
+    @ObservedObject private var assetCanary = CloudKitAssetCanary.shared
 
     let appState: AppState?
     let activeProfileName: String?
@@ -31,7 +32,7 @@ struct SyncDebugPanelView: View {
                     AppHeroSection(
                         systemImage: "ladybug",
                         title: "Sync Debug",
-                        subtitle: "Hidden developer-only iCloud diagnostics. Tests are numbered 1 to 31 from top to bottom."
+                        subtitle: "Hidden developer-only iCloud diagnostics. Tests are numbered 1 to 33 from top to bottom."
                     )
 
                     numberedTestsSection()
@@ -66,7 +67,7 @@ struct SyncDebugPanelView: View {
     private func numberedTestsSection() -> some View {
         AppSettingsSection(
             "Tests",
-            caption: "In number order from 1 to 31. Say “run 5”."
+            caption: "In number order from 1 to 33. First attachment test today is 33."
         ) {
             VStack(alignment: .leading, spacing: AppScreenMetrics.controlSpacing) {
                 AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.refreshICloud, "Refresh iCloud Status")) {
@@ -217,6 +218,31 @@ struct SyncDebugPanelView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Text("18 is a tiny JPEG. 32 is a document with no file (passed). 33 is an attachment row with no bytes. Do not run 18 or 19 until 33 has a result.")
+                    .font(.caption)
+                    .foregroundStyle(AppColors.textSupporting)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.tinyAssetCanary, "Run Tiny Asset Canary")) {
+                    Task {
+                        await assetCanary.runFileOnlyCanary(in: modelContext, monitor: cloudSync)
+                    }
+                }
+                .disabled(assetCanary.isRunning)
+
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.tinyAssetCanaryWithThumbnail, "Run Tiny Asset Canary With Thumbnail")) {
+                    Task {
+                        await assetCanary.runThumbnailCanary(in: modelContext, monitor: cloudSync)
+                    }
+                }
+                .disabled(assetCanary.isRunning)
+
+                Text(assetCanary.lastReport)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(Color.primary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 ForEach(
                     Array(LoadMateChecklistSeedTemplate.sections(for: incrementalSeedTargetProfile?.kind ?? .caravan).enumerated()),
                     id: \.element.templateOrder
@@ -276,6 +302,20 @@ struct SyncDebugPanelView: View {
                     .foregroundStyle(Color.primary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.documentOnlyCanary, "Run Document Canary (No File)")) {
+                    Task {
+                        await assetCanary.runDocumentOnlyCanary(in: modelContext, monitor: cloudSync)
+                    }
+                }
+                .disabled(assetCanary.isRunning)
+
+                AppSecondaryButton(SyncDebugTestCatalog.title(SyncDebugTestCatalog.attachmentMetaCanary, "Run Attachment Canary (No Bytes)")) {
+                    Task {
+                        await assetCanary.runAttachmentMetaCanary(in: modelContext, monitor: cloudSync)
+                    }
+                }
+                .disabled(assetCanary.isRunning)
 
                 #if DEBUG
                 Toggle("Suppress automatic seeding", isOn: $suppressAutomaticSeeding)
@@ -533,6 +573,7 @@ struct SyncDebugPanelView: View {
             lastSuccessfulExportAt: cloudSync.lastSuccessfulExportAt,
             lastDetailedCloudKitFailure: cloudSync.lastDetailedCloudKitFailure,
             lastMinimalSyncTestResult: cloudSync.lastMinimalSyncTestResult,
+            lastAssetCanaryResult: CloudKitAssetCanary.shared.lastReport,
             cloudKitIsolationTestReport: isolationTester.lastFormattedReport,
             isRegisteredForRemoteNotifications: cloudSync.isRegisteredForRemoteNotifications,
             pushRegistrationDetail: cloudSync.pushRegistrationDetail,

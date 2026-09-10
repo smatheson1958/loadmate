@@ -271,10 +271,10 @@ final class MaintenanceAttachment {
     var vehicleID: UUID = UUID()
     var localFileName: String = ""
     var thumbnailFileName: String?
-    /// File bytes so CloudKit can sync attachments to other devices.
+    /// Legacy CloudKit asset field. Kept nil; file bytes live on disk only.
     @Attribute(.externalStorage)
     var fileData: Data? = nil
-    /// JPEG thumbnail bytes so CloudKit can sync previews without the full file.
+    /// Legacy CloudKit asset field. Kept nil; thumbnail bytes live on disk only.
     @Attribute(.externalStorage)
     var thumbnailData: Data? = nil
     var fileTypeRaw: String = MaintenanceAttachmentKind.file.rawValue

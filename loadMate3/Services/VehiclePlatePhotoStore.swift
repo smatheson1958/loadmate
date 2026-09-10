@@ -5,8 +5,8 @@ enum VehiclePlatePhotoStoreError: Error {
     case encodeFailed
 }
 
-/// Manufacturer-plate photo for a vehicle profile. Bytes live on the SwiftData
-/// model so CloudKit can sync them; a local file is kept as a cache.
+/// Manufacturer-plate photo for a vehicle profile. Bytes live on disk only so
+/// CloudKit is not given a CKAsset payload.
 enum VehiclePlatePhotoStore {
     private static let subdirectoryName = "VehiclePlatePhotos"
     private static let maxPixelDimension: CGFloat = 2048
@@ -44,10 +44,10 @@ enum VehiclePlatePhotoStore {
     }
 
     static func loadData(for profile: VehicleProfile) -> Data? {
-        if let data = PhotoSyncSupport.nonEmpty(profile.manufacturerPlatePhotoData) {
+        if let data = loadLocalFileData(for: profile) {
             return data
         }
-        return loadLocalFileData(for: profile)
+        return PhotoSyncSupport.nonEmpty(profile.manufacturerPlatePhotoData)
     }
 
     static func loadImage(for profile: VehicleProfile) -> UIImage? {
@@ -63,14 +63,25 @@ enum VehiclePlatePhotoStore {
         )
     }
 
-    /// Copies on-disk JPEG bytes onto the model so CloudKit can export them.
+    /// Writes leftover SwiftData bytes to disk, then nils the CloudKit asset field.
     @discardableResult
-    static func migrateLocalFileIfNeeded(for profile: VehicleProfile) -> Bool {
-        guard PhotoSyncSupport.nonEmpty(profile.manufacturerPlatePhotoData) == nil,
-              let data = loadLocalFileData(for: profile) else {
+    static func offloadCloudKitBytesIfNeeded(for profile: VehicleProfile) -> Bool {
+        guard let data = PhotoSyncSupport.nonEmpty(profile.manufacturerPlatePhotoData) else {
             return false
         }
-        profile.manufacturerPlatePhotoData = data
+        if loadLocalFileData(for: profile) == nil {
+            guard let name = PhotoSyncSupport.ensureOnDisk(
+                data: data,
+                vehicleID: profile.id,
+                fileName: profile.manufacturerPlatePhotoFileName,
+                preferredExtension: "jpg",
+                fileURL: fileURL
+            ) else {
+                return false
+            }
+            profile.manufacturerPlatePhotoFileName = name
+        }
+        profile.manufacturerPlatePhotoData = nil
         return true
     }
 
@@ -112,7 +123,7 @@ enum VehiclePlatePhotoStore {
         let url = try fileURL(vehicleID: profile.id, fileName: fileName)
         try data.write(to: url, options: .atomic)
         profile.manufacturerPlatePhotoFileName = fileName
-        profile.manufacturerPlatePhotoData = data
+        profile.manufacturerPlatePhotoData = nil
         return fileName
     }
 }

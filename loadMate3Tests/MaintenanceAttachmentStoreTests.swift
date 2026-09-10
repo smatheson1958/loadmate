@@ -42,13 +42,13 @@ final class MaintenanceAttachmentStoreTests: XCTestCase {
 
         XCTAssertEqual(attachment.fileType, .photo)
         XCTAssertEqual(attachment.displayName, "Service photo")
-        XCTAssertNotNil(attachment.fileData)
-        XCTAssertNotNil(attachment.thumbnailData)
+        XCTAssertNil(attachment.fileData)
+        XCTAssertNil(attachment.thumbnailData)
         XCTAssertNotNil(MaintenanceAttachmentStore.loadImage(for: attachment))
         XCTAssertNotNil(MaintenanceAttachmentStore.loadThumbnail(for: attachment))
     }
 
-    func testLoadUsesCloudKitDataWhenLocalFileIsMissing() throws {
+    func testLoadDoesNotUseCloudKitAssetBytesAfterSave() throws {
         let vehicleID = UUID()
         let record = MaintenanceRecord(vehicleID: vehicleID)
         context.insert(record)
@@ -74,8 +74,9 @@ final class MaintenanceAttachmentStoreTests: XCTestCase {
             try? FileManager.default.removeItem(at: thumbURL)
         }
 
-        XCTAssertNotNil(MaintenanceAttachmentStore.loadImage(for: attachment))
-        XCTAssertNotNil(MaintenanceAttachmentStore.loadThumbnail(for: attachment))
+        XCTAssertNil(attachment.fileData)
+        XCTAssertNil(attachment.thumbnailData)
+        XCTAssertNil(MaintenanceAttachmentStore.loadImage(for: attachment))
     }
 
     func testSaveScannedDocumentKeepsPageCount() throws {

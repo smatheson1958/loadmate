@@ -54,7 +54,7 @@ enum AccidentPhotoStore {
             localFileName: fileName
         )
         photo.caption = caption
-        photo.imageData = data
+        photo.imageData = nil
         context.insert(photo)
         record.updatedAt = Date()
         try context.save()
@@ -62,10 +62,10 @@ enum AccidentPhotoStore {
     }
 
     static func loadData(for photo: AccidentPhoto, vehicleID: UUID) -> Data? {
-        if let data = PhotoSyncSupport.nonEmpty(photo.imageData) {
+        if let data = loadLocalFileData(for: photo, vehicleID: vehicleID) {
             return data
         }
-        return loadLocalFileData(for: photo, vehicleID: vehicleID)
+        return PhotoSyncSupport.nonEmpty(photo.imageData)
     }
 
     static func loadImage(for photo: AccidentPhoto, vehicleID: UUID) -> UIImage? {
@@ -81,13 +81,25 @@ enum AccidentPhotoStore {
         )
     }
 
+    /// Writes leftover SwiftData bytes to disk, then nils the CloudKit asset field.
     @discardableResult
-    static func migrateLocalFileIfNeeded(for photo: AccidentPhoto, vehicleID: UUID) -> Bool {
-        guard PhotoSyncSupport.nonEmpty(photo.imageData) == nil,
-              let data = loadLocalFileData(for: photo, vehicleID: vehicleID) else {
+    static func offloadCloudKitBytesIfNeeded(for photo: AccidentPhoto, vehicleID: UUID) -> Bool {
+        guard let data = PhotoSyncSupport.nonEmpty(photo.imageData) else {
             return false
         }
-        photo.imageData = data
+        if loadLocalFileData(for: photo, vehicleID: vehicleID) == nil {
+            guard let name = PhotoSyncSupport.ensureOnDisk(
+                data: data,
+                vehicleID: vehicleID,
+                fileName: photo.localFileName,
+                preferredExtension: "jpg",
+                fileURL: fileURL
+            ) else {
+                return false
+            }
+            photo.localFileName = name
+        }
+        photo.imageData = nil
         return true
     }
 

@@ -41,13 +41,13 @@ final class TyrePhotoStoreTests: XCTestCase {
         XCTAssertFalse(photo.localFileName.isEmpty)
         XCTAssertEqual(photo.kind, .sidewall)
         XCTAssertNil(photo.inspection)
-        XCTAssertNotNil(photo.imageData)
+        XCTAssertNil(photo.imageData)
 
         let loaded = TyrePhotoStore.loadImage(for: photo, vehicleID: profile.id)
         XCTAssertNotNil(loaded)
     }
 
-    func testLoadUsesCloudKitDataWhenLocalFileIsMissing() throws {
+    func testLoadDoesNotUseCloudKitAssetBytesAfterSave() throws {
         let profile = TestFixtures.caravanProfile()
         context.insert(profile)
         let record = TyreRecord(vehicleID: profile.id, position: .caravanLeft)
@@ -68,7 +68,8 @@ final class TyrePhotoStoreTests: XCTestCase {
         let url = try TyrePhotoStore.fileURL(vehicleID: profile.id, fileName: photo.localFileName)
         try FileManager.default.removeItem(at: url)
 
-        XCTAssertNotNil(TyrePhotoStore.loadImage(for: photo, vehicleID: profile.id))
+        XCTAssertNil(photo.imageData)
+        XCTAssertNil(TyrePhotoStore.loadImage(for: photo, vehicleID: profile.id))
     }
 
     func testResizeReducesLargeImages() {

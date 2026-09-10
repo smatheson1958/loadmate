@@ -250,6 +250,37 @@ enum CloudKitDiagnosticAuditor {
         })
 
         summaries.append(summarize(
+            model: "DocumentRecord",
+            records: fetch(DocumentRecord.self, in: context)
+        ) { document in
+            classify(
+                id: document.id,
+                model: "DocumentRecord",
+                displayName: sanitizedName(document.title),
+                parentID: nil,
+                name: document.title,
+                extra: document.notes
+            )
+        })
+
+        summaries.append(summarize(
+            model: "MaintenanceAttachment",
+            records: fetch(MaintenanceAttachment.self, in: context)
+        ) { attachment in
+            classify(
+                id: attachment.id,
+                model: "MaintenanceAttachment",
+                displayName: sanitizedName(attachment.displayName),
+                parentID: attachment.documentRecord?.id
+                    ?? attachment.warrantyEvent?.id
+                    ?? attachment.maintenanceRecord?.id
+                    ?? attachment.faultRecord?.id,
+                name: attachment.displayName,
+                extra: attachment.localFileName
+            )
+        })
+
+        summaries.append(summarize(
             model: "LoadedItem",
             records: fetch(LoadedItem.self, in: context)
         ) { item in
@@ -320,6 +351,15 @@ enum CloudKitDiagnosticAuditor {
             Set((idsByModel[model] ?? []).map(\.id))
         }
 
+        for document in fetch(DocumentRecord.self, in: context) where ids("DocumentRecord").contains(document.id) {
+            for attachment in document.attachmentsList {
+                MaintenanceAttachmentStore.delete(attachment, in: context)
+            }
+            context.delete(document)
+        }
+        for attachment in fetch(MaintenanceAttachment.self, in: context) where ids("MaintenanceAttachment").contains(attachment.id) {
+            MaintenanceAttachmentStore.delete(attachment, in: context)
+        }
         for item in fetch(LoadedItem.self, in: context) where ids("LoadedItem").contains(item.id) {
             context.delete(item)
         }
@@ -369,6 +409,7 @@ enum CloudKitDiagnosticAuditor {
         let sections = Dictionary(uniqueKeysWithValues: fetch(ChecklistSection.self, in: context).map { ($0.id, $0) })
         let groups = Dictionary(uniqueKeysWithValues: fetch(ChecklistGroup.self, in: context).map { ($0.id, $0) })
         let trips = Dictionary(uniqueKeysWithValues: fetch(Trip.self, in: context).map { ($0.id, $0) })
+        let documents = Dictionary(uniqueKeysWithValues: fetch(DocumentRecord.self, in: context).map { ($0.id, $0) })
         let profiles = Dictionary(uniqueKeysWithValues: fetch(VehicleProfile.self, in: context).map { ($0.id, $0) })
 
         for hit in candidates where hit.model == "ChecklistGroup" {
@@ -392,6 +433,18 @@ enum CloudKitDiagnosticAuditor {
                         "Removing ChecklistSection \(hit.id.uuidString) also deletes \(cascadeGroups.count) related ChecklistGroup(s) via cascade"
                     )
                 }
+            }
+        }
+
+        for hit in candidates where hit.model == "DocumentRecord" {
+            guard let document = documents[hit.id] else { continue }
+            let blocking = document.attachmentsList.filter { !candidateIDs.contains($0.id) }
+            if !blocking.isEmpty {
+                skip(hit, reason: "has \(blocking.count) non-diagnostic attachment(s)")
+            } else if !document.attachmentsList.isEmpty {
+                cascadeNotes.append(
+                    "Removing DocumentRecord \(hit.id.uuidString) also deletes \(document.attachmentsList.count) related MaintenanceAttachment(s) via cascade"
+                )
             }
         }
 

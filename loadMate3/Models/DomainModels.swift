@@ -115,7 +115,7 @@ final class VehicleProfile {
 
     /// Local filename for the last scanned manufacturer plate photo (empty when none).
     var manufacturerPlatePhotoFileName: String = ""
-    /// JPEG bytes so CloudKit can sync the plate photo to other devices.
+    /// Legacy CloudKit asset field. Kept nil; JPEG bytes live on disk only.
     @Attribute(.externalStorage)
     var manufacturerPlatePhotoData: Data? = nil
 

@@ -32,7 +32,7 @@ struct RootView: View {
             CloudSyncMonitor.shared.attachModelContext(modelContext)
             StartupCensus.log("app launch before startup logic", in: modelContext)
             let state = AppStateStore.resolve(in: modelContext, existing: appStates)
-            PhotoSyncMigration.migrateLocalFilesIfNeeded(in: modelContext)
+            PhotoSyncMigration.offloadCloudKitAssetBytesIfNeeded(in: modelContext)
             let didReconcile = VehicleProfileSyncReconciliation.reconcile(in: modelContext, appState: state)
             if didReconcile {
                 SyncDebugLogger.shared.record(

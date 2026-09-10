@@ -145,14 +145,12 @@ enum MaintenanceAttachmentStore {
         try draft.data.write(to: destinationURL, options: .atomic)
 
         var thumbnailFileName: String?
-        var thumbnailBytes: Data?
         if let thumbnailImage = draft.thumbnailImage,
            let thumbnailData = thumbnailImage.jpegData(compressionQuality: 0.75) {
             let thumbName = "\(thumbnailPrefix)\(UUID().uuidString).jpg"
             let thumbURL = try fileURL(vehicleID: vehicleID, fileName: thumbName)
             try thumbnailData.write(to: thumbURL, options: .atomic)
             thumbnailFileName = thumbName
-            thumbnailBytes = thumbnailData
         }
 
         let attachment = MaintenanceAttachment(
@@ -165,8 +163,6 @@ enum MaintenanceAttachmentStore {
             pageCount: draft.pageCount,
             byteCount: draft.data.count
         )
-        attachment.fileData = draft.data
-        attachment.thumbnailData = thumbnailBytes
 
         switch owner {
         case .maintenance(let record):
@@ -191,10 +187,10 @@ enum MaintenanceAttachmentStore {
     }
 
     static func loadData(for attachment: MaintenanceAttachment) -> Data? {
-        if let data = PhotoSyncSupport.nonEmpty(attachment.fileData) {
+        if let data = loadLocalFileData(for: attachment) {
             return data
         }
-        return loadLocalFileData(for: attachment)
+        return PhotoSyncSupport.nonEmpty(attachment.fileData)
     }
 
     static func loadLocalFileData(for attachment: MaintenanceAttachment) -> Data? {
@@ -214,19 +210,46 @@ enum MaintenanceAttachmentStore {
         )
     }
 
+    /// Writes leftover SwiftData bytes to disk, then nils the CloudKit asset fields.
     @discardableResult
-    static func migrateLocalFileIfNeeded(for attachment: MaintenanceAttachment) -> Bool {
+    static func offloadCloudKitBytesIfNeeded(for attachment: MaintenanceAttachment) -> Bool {
         var didChange = false
-        if PhotoSyncSupport.nonEmpty(attachment.fileData) == nil,
-           let data = loadLocalFileData(for: attachment) {
-            attachment.fileData = data
+
+        if let data = PhotoSyncSupport.nonEmpty(attachment.fileData) {
+            if loadLocalFileData(for: attachment) == nil {
+                let ext = URL(fileURLWithPath: attachment.localFileName).pathExtension
+                guard let name = PhotoSyncSupport.ensureOnDisk(
+                    data: data,
+                    vehicleID: attachment.vehicleID,
+                    fileName: attachment.localFileName,
+                    preferredExtension: ext.isEmpty ? "bin" : ext,
+                    fileURL: fileURL
+                ) else {
+                    return didChange
+                }
+                attachment.localFileName = name
+            }
+            attachment.fileData = nil
             didChange = true
         }
-        if PhotoSyncSupport.nonEmpty(attachment.thumbnailData) == nil,
-           let data = loadLocalThumbnailData(for: attachment) {
-            attachment.thumbnailData = data
+
+        if let data = PhotoSyncSupport.nonEmpty(attachment.thumbnailData) {
+            if loadLocalThumbnailData(for: attachment) == nil {
+                guard let name = PhotoSyncSupport.ensureOnDisk(
+                    data: data,
+                    vehicleID: attachment.vehicleID,
+                    fileName: attachment.thumbnailFileName ?? "",
+                    preferredExtension: "jpg",
+                    fileURL: fileURL
+                ) else {
+                    return didChange
+                }
+                attachment.thumbnailFileName = name
+            }
+            attachment.thumbnailData = nil
             didChange = true
         }
+
         return didChange
     }
 
@@ -239,11 +262,11 @@ enum MaintenanceAttachmentStore {
     }
 
     static func loadThumbnail(for attachment: MaintenanceAttachment) -> UIImage? {
-        if let data = PhotoSyncSupport.nonEmpty(attachment.thumbnailData),
+        if let data = loadLocalThumbnailData(for: attachment),
            let image = UIImage(data: data) {
             return image
         }
-        if let data = loadLocalThumbnailData(for: attachment),
+        if let data = PhotoSyncSupport.nonEmpty(attachment.thumbnailData),
            let image = UIImage(data: data) {
             return image
         }

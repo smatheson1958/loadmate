@@ -18,7 +18,7 @@ final class PhotoSyncMigrationTests: XCTestCase {
         context = nil
     }
 
-    func testMigratesExistingOnDiskPhotosIntoCloudKitData() throws {
+    func testOffloadsLegacyCloudKitBytesOntoDiskAndClearsModelFields() throws {
         let profile = TestFixtures.motorhomeProfile()
         context.insert(profile)
 
@@ -26,7 +26,11 @@ final class PhotoSyncMigrationTests: XCTestCase {
             image: makeImage(color: .gray),
             to: profile
         )
-        profile.manufacturerPlatePhotoData = nil
+        let plateData = try Data(contentsOf: try VehiclePlatePhotoStore.fileURL(vehicleID: profile.id, fileName: plateName))
+        try FileManager.default.removeItem(
+            at: try VehiclePlatePhotoStore.fileURL(vehicleID: profile.id, fileName: plateName)
+        )
+        profile.manufacturerPlatePhotoData = plateData
 
         let vehicleID = profile.id
         let accident = AccidentStore.createRecord(for: vehicleID, in: context)
@@ -37,7 +41,11 @@ final class PhotoSyncMigrationTests: XCTestCase {
             kind: .road,
             in: context
         )
-        accidentPhoto.imageData = nil
+        let accidentData = try Data(contentsOf: try AccidentPhotoStore.fileURL(vehicleID: vehicleID, fileName: accidentPhoto.localFileName))
+        try FileManager.default.removeItem(
+            at: try AccidentPhotoStore.fileURL(vehicleID: vehicleID, fileName: accidentPhoto.localFileName)
+        )
+        accidentPhoto.imageData = accidentData
 
         let tyre = TyreRecord(vehicleID: vehicleID, position: .motorhomeFrontLeft)
         context.insert(tyre)
@@ -49,7 +57,11 @@ final class PhotoSyncMigrationTests: XCTestCase {
             kind: .sidewall,
             in: context
         )
-        tyrePhoto.imageData = nil
+        let tyreData = try Data(contentsOf: try TyrePhotoStore.fileURL(vehicleID: vehicleID, fileName: tyrePhoto.localFileName))
+        try FileManager.default.removeItem(
+            at: try TyrePhotoStore.fileURL(vehicleID: vehicleID, fileName: tyrePhoto.localFileName)
+        )
+        tyrePhoto.imageData = tyreData
 
         let maintenance = MaintenanceRecord(vehicleID: vehicleID)
         context.insert(maintenance)
@@ -63,36 +75,44 @@ final class PhotoSyncMigrationTests: XCTestCase {
             to: .maintenance(maintenance),
             in: context
         )
-        attachment.fileData = nil
-        attachment.thumbnailData = nil
-        try context.save()
-
-        XCTAssertTrue(PhotoSyncMigration.migrateLocalFilesIfNeeded(in: context))
-
-        XCTAssertNotNil(profile.manufacturerPlatePhotoData)
-        XCTAssertNotNil(accidentPhoto.imageData)
-        XCTAssertNotNil(tyrePhoto.imageData)
-        XCTAssertNotNil(attachment.fileData)
-        XCTAssertNotNil(attachment.thumbnailData)
-
-        try FileManager.default.removeItem(
-            at: try VehiclePlatePhotoStore.fileURL(vehicleID: vehicleID, fileName: plateName)
-        )
-        try FileManager.default.removeItem(
-            at: try AccidentPhotoStore.fileURL(vehicleID: vehicleID, fileName: accidentPhoto.localFileName)
-        )
-        try FileManager.default.removeItem(
-            at: try TyrePhotoStore.fileURL(vehicleID: vehicleID, fileName: tyrePhoto.localFileName)
-        )
+        let attachmentData = try Data(contentsOf: try MaintenanceAttachmentStore.fileURL(vehicleID: vehicleID, fileName: attachment.localFileName))
+        let thumbnailName = try XCTUnwrap(attachment.thumbnailFileName)
+        let thumbnailData = try Data(contentsOf: try MaintenanceAttachmentStore.fileURL(vehicleID: vehicleID, fileName: thumbnailName))
         try FileManager.default.removeItem(
             at: try MaintenanceAttachmentStore.fileURL(vehicleID: vehicleID, fileName: attachment.localFileName)
         )
+        try FileManager.default.removeItem(
+            at: try MaintenanceAttachmentStore.fileURL(vehicleID: vehicleID, fileName: thumbnailName)
+        )
+        attachment.fileData = attachmentData
+        attachment.thumbnailData = thumbnailData
+        try context.save()
+
+        XCTAssertTrue(PhotoSyncMigration.offloadCloudKitAssetBytesIfNeeded(in: context))
+
+        XCTAssertNil(profile.manufacturerPlatePhotoData)
+        XCTAssertNil(accidentPhoto.imageData)
+        XCTAssertNil(tyrePhoto.imageData)
+        XCTAssertNil(attachment.fileData)
+        XCTAssertNil(attachment.thumbnailData)
 
         XCTAssertNotNil(VehiclePlatePhotoStore.loadImage(for: profile))
         XCTAssertNotNil(AccidentPhotoStore.loadImage(for: accidentPhoto, vehicleID: vehicleID))
         XCTAssertNotNil(TyrePhotoStore.loadImage(for: tyrePhoto, vehicleID: vehicleID))
         XCTAssertNotNil(MaintenanceAttachmentStore.loadImage(for: attachment))
-        XCTAssertFalse(PhotoSyncMigration.migrateLocalFilesIfNeeded(in: context))
+        XCTAssertNotNil(MaintenanceAttachmentStore.loadThumbnail(for: attachment))
+        XCTAssertFalse(PhotoSyncMigration.offloadCloudKitAssetBytesIfNeeded(in: context))
+    }
+
+    func testSaveAlreadyKeepsAssetFieldsNilSoOffloadIsANoOp() throws {
+        let profile = TestFixtures.caravanProfile()
+        context.insert(profile)
+        try VehiclePlatePhotoStore.save(image: makeImage(color: .gray), to: profile)
+        try context.save()
+
+        XCTAssertNil(profile.manufacturerPlatePhotoData)
+        XCTAssertFalse(PhotoSyncMigration.offloadCloudKitAssetBytesIfNeeded(in: context))
+        XCTAssertNotNil(VehiclePlatePhotoStore.loadImage(for: profile))
     }
 
     private func makeImage(color: UIColor, size: CGSize = CGSize(width: 80, height: 50)) -> UIImage {

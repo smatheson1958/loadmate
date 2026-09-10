@@ -108,6 +108,7 @@ final class CloudKitDeepErrorInspectorTests: XCTestCase {
             === DEEP CLOUDKIT ERROR INSPECTION END ===
             """,
             lastMinimalSyncTestResult: "Not run",
+            lastAssetCanaryResult: "Not run",
             cloudKitIsolationTestReport: "CloudKit Model Isolation Test\nStatus: Not run",
             isRegisteredForRemoteNotifications: true,
             pushRegistrationDetail: "Registered",

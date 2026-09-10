@@ -38,12 +38,12 @@ final class AccidentPhotoStoreTests: XCTestCase {
 
         XCTAssertFalse(photo.localFileName.isEmpty)
         XCTAssertEqual(photo.kind, .plate)
-        XCTAssertNotNil(photo.imageData)
+        XCTAssertNil(photo.imageData)
         XCTAssertNotNil(AccidentPhotoStore.loadImage(for: photo, vehicleID: vehicleID))
         XCTAssertEqual(AccidentPhotoStore.photos(of: .plate, on: record).count, 1)
     }
 
-    func testLoadUsesCloudKitDataWhenLocalFileIsMissing() throws {
+    func testLoadDoesNotUseCloudKitAssetBytesAfterSave() throws {
         let vehicleID = UUID()
         let record = AccidentStore.createRecord(for: vehicleID, in: context)
         let image = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 120)).image { ctx in
@@ -60,7 +60,8 @@ final class AccidentPhotoStoreTests: XCTestCase {
         let url = try AccidentPhotoStore.fileURL(vehicleID: vehicleID, fileName: photo.localFileName)
         try FileManager.default.removeItem(at: url)
 
-        XCTAssertNotNil(AccidentPhotoStore.loadImage(for: photo, vehicleID: vehicleID))
+        XCTAssertNil(photo.imageData)
+        XCTAssertNil(AccidentPhotoStore.loadImage(for: photo, vehicleID: vehicleID))
     }
 
     func testPendingLookupIsMarkedOnNetworkError() async throws {

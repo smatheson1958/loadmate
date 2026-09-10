@@ -30,6 +30,7 @@ struct SyncDebugSnapshot {
     let lastSuccessfulExportAt: Date?
     let lastDetailedCloudKitFailure: String?
     let lastMinimalSyncTestResult: String
+    let lastAssetCanaryResult: String
     let cloudKitIsolationTestReport: String
     let isRegisteredForRemoteNotifications: Bool
     let pushRegistrationDetail: String
@@ -127,6 +128,7 @@ final class SyncDebugLogger: ObservableObject {
             "Last successful import: \(SyncDebugFormatting.string(for: snapshot.lastSuccessfulImportAt))",
             "Last successful export: \(SyncDebugFormatting.string(for: snapshot.lastSuccessfulExportAt))",
             "Minimal sync test: \(snapshot.lastMinimalSyncTestResult)",
+            "Tiny asset canary: \(snapshot.lastAssetCanaryResult)",
             "",
             snapshot.cloudKitIsolationTestReport,
             "",
@@ -182,9 +184,13 @@ enum SyncDebugTestCatalog {
     static let isolationChecklistGroup = 15
     static let isolationLoadedItem = 16
     static let isolationLibraryItem = 17
+    static let tinyAssetCanary = 18
+    static let tinyAssetCanaryWithThumbnail = 19
     static let firstSeedSection = 20
     static let watchVehicle = 30
     static let checkWatchedVehicle = 31
+    static let documentOnlyCanary = 32
+    static let attachmentMetaCanary = 33
 
     static func title(_ number: Int, _ name: String) -> String {
         "\(number). \(name)"
@@ -213,9 +219,13 @@ enum SyncDebugTestCatalog {
             title(isolationChecklistGroup, "Run ChecklistGroup CloudKit Test (disabled)"),
             title(isolationLoadedItem, "Run LoadedItem CloudKit Test (disabled)"),
             title(isolationLibraryItem, "Run LibraryItem CloudKit Test (disabled)"),
+            title(tinyAssetCanary, "Run Tiny Asset Canary"),
+            title(tinyAssetCanaryWithThumbnail, "Run Tiny Asset Canary With Thumbnail"),
             title(firstSeedSection, "Add seed section 1 (then 21, 22… by template order)"),
             title(watchVehicle, "Watch vehicle"),
             title(checkWatchedVehicle, "Check whether watched vehicle reappeared"),
+            title(documentOnlyCanary, "Run Document Canary (No File)"),
+            title(attachmentMetaCanary, "Run Attachment Canary (No Bytes)"),
         ]
     }
 
